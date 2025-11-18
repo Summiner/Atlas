@@ -40,6 +40,7 @@ publishing {
     }
 }
 
+// Hot Swapping
 tasks.withType(xyz.jpenilla.runtask.task.AbstractRun::class) {
     javaLauncher = javaToolchains.launcherFor {
         vendor = JvmVendorSpec.JETBRAINS
@@ -72,14 +73,6 @@ tasks {
 
     runServer {
         minecraftVersion("1.21.5")
-//        jvmArgs = listOf(
-//            "-Dminecraft.api.auth.host=https://authserver.mojang.com/",
-//            "-Dminecraft.api.account.host=https://api.mojang.com/",
-//            "-Dminecraft.api.services.host=https://api.minecraftservices.com/",
-//            "-Dminecraft.api.profiles.host=https://api.mojang.com/",
-//            "-Dminecraft.api.session.host=http://127.0.0.1:3025",
-//            "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5025"
-//        )
         pluginJars(apiJar.get().archiveFile, testPlugin.get().archiveFile)
         dependsOn(testPlugin)
         downloadPlugins {
