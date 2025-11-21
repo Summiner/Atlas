@@ -6,12 +6,14 @@ import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.Plugin;
 import org.jetbrains.annotations.Nullable;
+import rs.jamie.atlas.AtlasCommandContext;
 
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 
-public class PlayerArgument implements ArgumentSerializer<Player> {
+public class PaperPlayerArgument implements ArgumentSerializer<Player> {
 
     @Override
     public Player parse(@Nullable String value) {
@@ -20,14 +22,12 @@ public class PlayerArgument implements ArgumentSerializer<Player> {
     }
 
     @Override
-    public CompletableFuture<Suggestions> suggest(CommandContext<CommandSourceStack> ctx, SuggestionsBuilder builder) {
+    public CompletableFuture<Suggestions> suggest(AtlasCommandContext ctx, SuggestionsBuilder builder) {
         Bukkit.getOnlinePlayers().stream()
                 .map(Player::getName)
                 .filter(name -> name.toLowerCase(Locale.ROOT).startsWith(builder.getRemainingLowerCase()))
                 .forEach(builder::suggest);
         return builder.buildFuture();
     }
-
-
 
 }

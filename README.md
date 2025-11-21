@@ -4,9 +4,13 @@
 
 
 ### Installation
-<details>
-<summary>Gradle (Kotlin)</summary>
 
+[//]: # (Paper Installation)
+
+<details>
+<summary>Paper</summary>
+
+#### Gradle (Kotlin)
 ```kts
 repositories {
     mavenCentral()
@@ -14,14 +18,11 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.Summiner:Atlas:1.0.0")
+    implementation("com.github.Summiner:Atlas:1.0.0'")
 }
 ```
-</details>
 
-<details>
-<summary>Gradle (Groovy)</summary>
-
+#### Gradle (Groovy):
 ```groovy
 repositories {
     mavenCentral()
@@ -32,11 +33,8 @@ dependencies {
     implementation 'com.github.Summiner:Atlas:1.0.0'
 }
 ```
-</details>
 
-<details>
-<summary>Maven</summary>
-
+#### Maven:
 ```xml
 <repository>
   <id>jitpack.io</id>
@@ -44,43 +42,114 @@ dependencies {
 </repository>
 
 <dependency>
-  <groupId>com.github.Summiner</groupId>
+  <groupId>com.github.Summiner'</groupId>
   <artifactId>Atlas</artifactId>
-  <version>1.1.1</version>
+  <version>1.0.0</version>
 </dependency>
 ```
 </details>
 
 
-### Usage
+
+[//]: # (Velocity Installation)
 
 <details>
-<summary>Java Example</summary>
+<summary>Velocity</summary>
 
-Registering:
-```java
-@Override
-public void onEnable() {
-    PaperAtlasRuntime atlas = new PaperAtlasRuntime(this, "rs.jamie.atlas.commands");
+#### Gradle (Kotlin)
+```kts
+repositories {
+    mavenCentral()
+    maven("https://jitpack.io")
+}
 
+dependencies {
+    implementation("com.github.Summiner:Atlas:1.0.0")
 }
 ```
 
-Example Command:
+#### Gradle (Groovy):
+```groovy
+repositories {
+    mavenCentral()
+    maven { url 'https://jitpack.io' }
+}
+
+dependencies {
+    implementation 'com.github.Summiner:Atlas:1.0.0'
+}
+```
+
+#### Maven:
+```xml
+<repository>
+    <id>jitpack.io</id>
+    <url>https://jitpack.io</url>
+</repository>
+
+<dependency>
+<groupId>com.github.Summiner'</groupId>
+<artifactId>Atlas</artifactId>
+<version>1.0.0</version>
+</dependency>
+```
+
+</details>
+
+
+### Usage
+
+
+#### Registering With Paper
+
 ```java
-@Command(name="example", description = "Example command for Atlas", permission = "atlas.example", aliases={"test"})
-public class TestCommand {
+@Override
+public void onEnable() {
+    PaperAtlasRuntime atlas = new PaperAtlasRuntime(this, "your.pkg.commands");
+}
+```
+
+#### Registering with velocity
+```java
+@Inject
+public ExamplePlugin(ProxyServer server, Logger logger) {
+    VelocityAtlasRuntime atlas = new VelocityAtlasRuntime(this, server, logger, "your.pkg.commands");
+}
+```
+
+\
+\
+Command Example:
+```java
+package your.pkg.commands;
+
+@Command(name="example", description = "Example command for Atlas", permission = "example.atlas", aliases={"atlas"})
+public class ExampleCommand {
     
-    @Argument(async=true)
-    public static void test(CommandSourceStack stack, OfflinePlayer player) {
-        stack.getExecutor().sendMessage(TextUtil.formatColor((player == null ? "&bPlayer: &cFailed" : "&bPlayer: &aPassed") + " &8| &f"+player.getName()));
+
+    // Paper only command (CommandSourceStack is used by Paper's API)
+    @Argument(permission="example.paper")
+    public static void paper(CommandSourceStack stack, OfflinePlayer player, Double amount) {
+        stack.getExecutor().sendMessage(TextUtil.formatColor((player == null ? "&bPlayer: &cFailed" : "&bPlayer: &aPassed &8| &f"+player.getName())));
+        stack.getExecutor().sendMessage(TextUtil.formatColor((amount == null ? "&bDouble: &cFailed" : "&bDouble: &aPassed&8| &f"+amount)));
         stack.getExecutor().sendMessage(TextUtil.formatColor("&bCommand: &aPassed"));
     }
-    
-    @Argument(permission="atlas.test")
-    public static void abc(CommandSourceStack stack, Player player) {
-        stack.getExecutor().sendMessage(TextUtil.formatColor((player == null ? "&bPlayer: &cFailed" : "&bPlayer: &aPassed") + " &8| &f"+player.getName()));
-        stack.getExecutor().sendMessage(TextUtil.formatColor("&bCommand: &aPassed"));
+
+    // Velocity only command (CommandSource is used by Velocity's API)
+    @Argument(permission="example.velocity")
+    public static void velocity(CommandSource stack, Player player, Double amount) {
+        stack.sendMessage(TextUtil.formatColor((player == null ? "&bPlayer: &cFailed" : "&bPlayer: &aPassed &8| &f"+player.getUsername())));
+        stack.sendMessage(TextUtil.formatColor((amount == null ? "&bDouble: &cFailed" : "&bDouble: &aPassed &8| &f"+amount)));
+        stack.sendMessage(TextUtil.formatColor("&bCommand: &aPassed"));
     }
+
+    // Support for all platforms (AtlasCommandContext is used to generalize all platforms into one provider)
+    @Argument(permission="example.all", async=true)
+    public static void all(AtlasCommandContext stack, Double amount) {
+        stack.sendMessage(TextUtil.formatColor((amount == null ? "&bDouble: &cFailed" : "&bDouble: &aPassed &8| &f"+amount)));
+        stack.sendMessage(TextUtil.formatColor("&bCommand: &aPassed"));
+    }
+    
+    
 }
 ```

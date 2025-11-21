@@ -6,15 +6,13 @@ import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
+import com.velocitypowered.api.command.BrigadierCommand;
+import com.velocitypowered.api.command.CommandManager;
+import com.velocitypowered.api.command.CommandMeta;
+import com.velocitypowered.api.command.CommandSource;
+import com.velocitypowered.api.proxy.ProxyServer;
 import io.github.classgraph.ClassGraph;
 import io.github.classgraph.ScanResult;
-import io.papermc.paper.command.brigadier.CommandSourceStack;
-import io.papermc.paper.command.brigadier.Commands;
-import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
-import org.bukkit.Bukkit;
-import org.bukkit.entity.Entity;
-import org.bukkit.event.Listener;
-import org.bukkit.plugin.Plugin;
 import org.jetbrains.annotations.NotNull;
 import rs.jamie.atlas.annotations.Argument;
 import rs.jamie.atlas.annotations.Command;
@@ -22,68 +20,76 @@ import rs.jamie.atlas.arguments.ArgumentSerializer;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
+import java.util.logging.Logger;
 
-@SuppressWarnings("UnstableApiUsage")
-public class PaperAtlasRuntime implements Listener, AtlasRuntime {
+public class VelocityAtlasRuntime implements AtlasRuntime {
 
-    private final Plugin plugin;
+    public static ProxyServer proxyServer;
+    private final Object pluginObject;
+    private final Logger logger;
     private final ConcurrentHashMap<Class<?>, ArgumentSerializer<?>> serializers = new ConcurrentHashMap<>();
 
-    public PaperAtlasRuntime(Plugin plugin, String cmd_pkg) {
-        this.plugin = plugin;
+    // Plugin must be an object instance of your plugin class
+    public VelocityAtlasRuntime(Object plugin, ProxyServer server, Logger logger, String cmd_pkg) {
+        this.pluginObject = plugin;
+        if(proxyServer == null) proxyServer = server;
+        this.logger = logger;
         registerSerializers("rs.jamie.atlas.arguments");
         registerPackage(cmd_pkg);
     }
 
-    public PaperAtlasRuntime(Plugin plugin, String cmd_pkg, String arg_pkg) {
-        this.plugin = plugin;
+
+    public VelocityAtlasRuntime(Object plugin, ProxyServer server, Logger logger, String cmd_pkg, String arg_pkg) {
+        this.pluginObject = plugin;
+        if(proxyServer == null) proxyServer = server;
+        this.logger = logger;
         registerSerializers("rs.jamie.atlas.arguments");
         registerSerializers(arg_pkg);
         registerPackage(cmd_pkg);
     }
 
     public void registerCommand(@NotNull Class<?> commandClass) {
+        CommandManager commandManager = proxyServer.getCommandManager();
         if(commandClass.isAnnotationPresent(Command.class)) {
             Command cmdAnnotation = commandClass.getAnnotation(Command.class);
 
             Set<Method> methods = new HashSet<>();
             Collections.addAll(methods, commandClass.getMethods());
-            LiteralArgumentBuilder<CommandSourceStack> command = Commands.literal(cmdAnnotation.name());
+            LiteralArgumentBuilder<CommandSource> command = BrigadierCommand.literalArgumentBuilder(cmdAnnotation.name());
 
             for (Method method : methods) {
                 try {
                     registerMethod(method, cmdAnnotation, commandClass, command);
                 }  catch(Exception e) {
-                    plugin.getLogger().log(Level.SEVERE, "[Atlas] Could not register method " + method.getName(), e);
+                    logger.log(Level.SEVERE, "[Atlas] Could not register method " + method.getName(), e);
                 }
             }
 
-            plugin.getLifecycleManager().registerEventHandler(
-                    LifecycleEvents.COMMANDS, commands ->
-                    commands.registrar().register(command.build())
-            );
+            CommandMeta commandMeta = commandManager.metaBuilder("test").aliases(cmdAnnotation.aliases())
+                    .plugin(pluginObject)
+                    .build();
+
+            commandManager.register(commandMeta, new BrigadierCommand(command.build()));
         }
     }
 
-    public void registerMethod(@NotNull Method method, @NotNull Command cmdAnnotation, @NotNull Class<?> commandClass, LiteralArgumentBuilder<CommandSourceStack> command) {
+    public void registerMethod(@NotNull Method method, @NotNull Command cmdAnnotation, @NotNull Class<?> commandClass, LiteralArgumentBuilder<CommandSource> command) {
         if(!method.isAnnotationPresent(Argument.class)) return;
         Argument argAnnotation = method.getAnnotation(Argument.class);
         System.out.println(method.getName());
         System.out.println(Arrays.toString(method.getParameters()));
 
-        LiteralArgumentBuilder<CommandSourceStack> methodCommand = Commands.literal(method.getName());
+        LiteralArgumentBuilder<CommandSource> methodCommand = BrigadierCommand.literalArgumentBuilder(method.getName());
 
         Parameter[] parameters = method.getParameters();
 
         System.out.println("Method Parameters ("+parameters.length+")");
 
-        List<RequiredArgumentBuilder<CommandSourceStack, String>> arguments = new ArrayList<>();
+        List<RequiredArgumentBuilder<CommandSource, String>> arguments = new ArrayList<>();
 
         for(int i = 1; i < parameters.length; i++) {
             Parameter parameter = parameters[i];
@@ -94,7 +100,7 @@ public class PaperAtlasRuntime implements Listener, AtlasRuntime {
             System.out.println("Serializers Class: "+serializers.get(parameter.getType()).getClass().getName());
             // DEBUG
 
-            RequiredArgumentBuilder<CommandSourceStack, String> argument = Commands.argument(parameter.getName(), StringArgumentType.string());
+            RequiredArgumentBuilder<CommandSource, String> argument = BrigadierCommand.requiredArgumentBuilder(parameter.getName(), StringArgumentType.string());
             argument.suggests((ctx, b) -> addSuggestion(ctx, b, finalParam, argAnnotation, cmdAnnotation));
             arguments.add(argument);
 
@@ -102,8 +108,7 @@ public class PaperAtlasRuntime implements Listener, AtlasRuntime {
         }
 
         arguments.getLast().executes(ctx -> {
-            Entity executor = ctx.getSource().getExecutor();
-            if(executor == null || shouldReject(executor, argAnnotation, cmdAnnotation)) return com.mojang.brigadier.Command.SINGLE_SUCCESS;
+            if(shouldReject(ctx.getSource(), argAnnotation, cmdAnnotation)) return com.mojang.brigadier.Command.SINGLE_SUCCESS;
 
             List<Object> args = runExecutor(ctx, parameters);
 
@@ -115,22 +120,31 @@ public class PaperAtlasRuntime implements Listener, AtlasRuntime {
                 }
             }
 
-            Bukkit.getScheduler().runTask(plugin, () -> {
+            if(argAnnotation.async()) {
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        Object instance = commandClass.getDeclaredConstructor().newInstance();
+                        method.invoke(instance, args.toArray());
+                    } catch (Exception e) {
+                        logger.log(Level.SEVERE, "[Atlas] Error executing " + method.getName(), e);
+                    }
+                });
+            } else {
                 try {
                     Object instance = commandClass.getDeclaredConstructor().newInstance();
                     method.invoke(instance, args.toArray());
                 } catch (Exception e) {
-                    plugin.getLogger().log(Level.SEVERE, "[Atlas] Error executing " + method.getName(), e);
+                    logger.log(Level.SEVERE, "[Atlas] Error executing " + method.getName(), e);
                 }
-            });
+            }
 
             return com.mojang.brigadier.Command.SINGLE_SUCCESS;
         });
 
 
-        RequiredArgumentBuilder<CommandSourceStack, String> argumentBuilder = null;
+        RequiredArgumentBuilder<CommandSource, String> argumentBuilder = null;
         for (int i = arguments.size() - 1; i >= 0; i--) {
-            RequiredArgumentBuilder<CommandSourceStack, String> current = arguments.get(i);
+            RequiredArgumentBuilder<CommandSource, String> current = arguments.get(i);
 
             if (argumentBuilder != null) {
                 current.then(argumentBuilder);
@@ -146,9 +160,13 @@ public class PaperAtlasRuntime implements Listener, AtlasRuntime {
         command.then(methodCommand);
     }
 
-    private List<Object> runExecutor(final CommandContext<CommandSourceStack> ctx, Parameter[] parameters) {
+    private List<Object> runExecutor(final CommandContext<CommandSource> ctx, Parameter[] parameters) {
         List<Object> list = new ArrayList<>();
-        list.add(ctx.getSource());
+        if(parameters[0].getType() == AtlasCommandContext.class) {
+            list.add(new AtlasCommandContext(ctx, ctx.getSource()));
+        } else {
+            list.add(ctx.getSource());
+        }
 
         for(int p = 1; p < parameters.length; p++) {
             Parameter parameter = parameters[p];
@@ -170,23 +188,21 @@ public class PaperAtlasRuntime implements Listener, AtlasRuntime {
         return list;
     }
 
-    private CompletableFuture<Suggestions> addSuggestion(final CommandContext<CommandSourceStack> ctx, final SuggestionsBuilder builder, final Parameter parameter, Argument argAnnotation, Command cmdAnnotation) {
-        Entity executor = ctx.getSource().getExecutor();
-        if(executor == null || shouldReject(executor, argAnnotation, cmdAnnotation)) return builder.buildFuture();
+    private CompletableFuture<Suggestions> addSuggestion(final CommandContext<CommandSource> ctx, final SuggestionsBuilder builder, final Parameter parameter, Argument argAnnotation, Command cmdAnnotation) {
+        if(shouldReject(ctx.getSource(), argAnnotation, cmdAnnotation)) return builder.buildFuture();
 
         Class<?> klazz = parameter.getType();
         ArgumentSerializer<?> serializer = serializers.get(klazz);
 
         if(klazz == String.class) {
-            builder.suggest("<TEXT>");
             return builder.buildFuture();
         }
 
         if(serializer != null) {
-            return serializer.suggest(ctx, builder);
+            return serializer.suggest(new AtlasCommandContext(ctx, ctx.getSource()), builder);
         }
 
-        builder.suggest("No_Serializer_Found");
+        builder.suggest("No Serializer Found");
         return builder.buildFuture();
     }
 
@@ -205,9 +221,9 @@ public class PaperAtlasRuntime implements Listener, AtlasRuntime {
         }
     }
 
-    public boolean shouldReject(@NotNull Entity entity, Argument argAnnotation, Command cmdAnnotation) {
-        if(!entity.hasPermission(argAnnotation.permission()) || !entity.hasPermission(cmdAnnotation.permission())) {
-            entity.sendMessage(TextUtil.formatColor(cmdAnnotation.noPermission()));
+    public boolean shouldReject(@NotNull CommandSource source, Argument argAnnotation, Command cmdAnnotation) {
+        if(!source.hasPermission(argAnnotation.permission()) || !source.hasPermission(cmdAnnotation.permission())) {
+            source.sendMessage(TextUtil.formatColor(cmdAnnotation.noPermission()));
             return true;
         }
         return false;
@@ -229,7 +245,7 @@ public class PaperAtlasRuntime implements Listener, AtlasRuntime {
                     if(type == null) continue;
                     serializers.put(type, serializer);
                 } catch(Exception e) {
-                    plugin.getLogger().log(Level.SEVERE, "[Atlas] Could not load serializer " + clazz.getName(), e);
+                    logger.log(Level.SEVERE, "[Atlas] Could not load serializer " + clazz.getName(), e);
                 }
             }
         }

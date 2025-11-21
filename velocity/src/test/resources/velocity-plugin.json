@@ -1,0 +1,10 @@
+{
+  "id": "atlastest",
+  "name":"Atlas Test Plugin",
+  "version":"1.1.0",
+  "description":":3",
+  "url":"https://jamie.rs",
+  "authors":["Summiner"],
+  "dependencies":[],
+  "main":"rs.jamie.atlas.AtlasTest"
+}

@@ -1,5 +1,5 @@
 name: AtlasTest
-version: '1.0.0'
+version: '1.1.0'
 main: rs.jamie.atlas.AtlasTest
 api-version: '1.20'
 prefix: AtlasTest
